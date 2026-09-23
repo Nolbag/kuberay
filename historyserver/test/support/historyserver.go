@@ -39,6 +39,7 @@ const (
       "serveDeployment": "rayServeDeploymentDashboard",
       "serveLlm": "rayServeLlmDashboard",
       "data": "rayDataDashboard",
+      "dataLlm": "rayDataLlmDashboard",
       "train": "rayTrainDashboard"
     },
     "dashboardDatasource": "Prometheus",
@@ -50,18 +51,10 @@ const (
 // HistoryServerEndpoints defines endpoints that should be proxied to Ray Dashboard
 // Ref: https://github.com/ray-project/kuberay/blob/8fc4e2a0e644db392534927b7c03d15e3ab7bdbc/historyserver/pkg/historyserver/router.go#L66-L128
 //
-// Excluded endpoints that require parameters:
-//   - /nodes/{node_id}
-//   - /api/jobs/{job_id}
-//   - /api/v0/logs (requires node_id)
-//   - /logical/actors/{actor_id}
-//
-// Excluded endpoints that are not yet implemented:
-//   - /api/cluster_status
-//   - /api/data/datasets/{job_id}
-//   - /api/jobs
-//   - /api/serve/applications
-//   - /api/v0/placement_groups
+// This generic smoke-test table only includes endpoints that need no dynamic IDs or
+// workload-specific fixtures. Parameterized endpoints (nodes, jobs, logs, and actors)
+// and endpoints with dedicated coverage (cluster status, jobs, Serve, Ray Data, and
+// placement groups) are intentionally excluded.
 var HistoryServerEndpoints = []string{
 	"/nodes?view=summary",
 	"/api/v0/tasks",
@@ -201,7 +194,8 @@ func PrepareTestEnvWithPrometheusAndGrafana(test Test, g *WithT, namespace *core
 }
 
 // GetOneOfNodeID retrieves a node ID from the /nodes endpoint.
-func GetOneOfNodeID(g *WithT, client *http.Client, historyServerURL string, isLive bool) string {
+// If headNode is true, it iterates over all nodes and returns the one with isHeadNode == true.
+func GetOneOfNodeID(g *WithT, client *http.Client, historyServerURL string, headNode bool) string {
 	resp, err := client.Get(historyServerURL + "/nodes?view=summary")
 	g.Expect(err).NotTo(HaveOccurred())
 	defer resp.Body.Close()
@@ -219,8 +213,31 @@ func GetOneOfNodeID(g *WithT, client *http.Client, historyServerURL string, isLi
 	g.Expect(len(summary)).To(BeNumerically(">", 0))
 
 	// Both live and dead clusters return a flat array of node objects.
-	nodeInfo := summary[0].(map[string]any)
-	return nodeInfo["raylet"].(map[string]any)["nodeId"].(string)
+	if !headNode {
+		raylet := getRayletFromNode(g, summary[0])
+		return raylet["nodeId"].(string)
+	}
+
+	for _, node := range summary {
+		raylet := getRayletFromNode(g, node)
+		if isHead, ok := raylet["isHeadNode"].(bool); ok && isHead {
+			return raylet["nodeId"].(string)
+		}
+	}
+
+	g.Expect(false).To(BeTrue(), "Expected to find a head node in /nodes summary")
+	return ""
+}
+
+// getRayletFromNode extracts the raylet object from a node summary.
+func getRayletFromNode(g *WithT, node any) map[string]any {
+	nodeInfo, ok := node.(map[string]any)
+	g.Expect(ok).To(BeTrue(), "node should be an object")
+
+	raylet, ok := nodeInfo["raylet"].(map[string]any)
+	g.Expect(ok).To(BeTrue(), "node should contain raylet object")
+
+	return raylet
 }
 
 // GetOneOfActorID retrieves an actor ID from the /logical/actors endpoint.

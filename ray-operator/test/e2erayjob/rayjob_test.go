@@ -11,7 +11,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray"
@@ -284,17 +283,19 @@ env_vars:
 			WithSpec(rayv1ac.RayJobSpec().
 				WithRayClusterSpec(NewRayClusterSpec()).
 				WithEntrypoint("python -c \"import time; time.sleep(60)\"").
-				WithShutdownAfterJobFinishes(true).
-				WithSubmitterPodTemplate(JobSubmitterPodTemplateApplyConfiguration()))
+				// BackoffLimit=0 prevents the submitter Job from retrying after the head Pod is deleted.
+				// Otherwise it may resubmit to the recreated (non GCS FT) head pod and non-deterministically succeed.
+				WithSubmitterConfig(rayv1ac.SubmitterConfig().WithBackoffLimit(0)).
+				WithShutdownAfterJobFinishes(true))
 
 		rayJob, err := test.Client().Ray().RayV1().RayJobs(namespace.Name).Apply(test.Ctx(), rayJobAC, TestApplyOptions)
 		g.Expect(err).NotTo(HaveOccurred())
 		LogWithTimestamp(test.T(), "Created RayJob %s/%s successfully", rayJob.Namespace, rayJob.Name)
 
-		// Wait until the RayJob deployment status transitions to Running
+		// Wait until the RayJob's job status transitions to Running
 		LogWithTimestamp(test.T(), "Waiting for RayJob %s/%s to be 'Running'", rayJob.Namespace, rayJob.Name)
 		g.Eventually(RayJob(test, rayJob.Namespace, rayJob.Name), TestTimeoutMedium).
-			Should(WithTransform(RayJobDeploymentStatus, Equal(rayv1.JobDeploymentStatusRunning)))
+			Should(WithTransform(RayJobStatus, Equal(rayv1.JobStatusRunning)))
 
 		// Fetch RayCluster and delete the head Pod
 		rayJob, err = GetRayJob(test, rayJob.Namespace, rayJob.Name)
@@ -313,24 +314,14 @@ env_vars:
 		g.Eventually(func() (*corev1.Pod, error) {
 			return GetHeadPod(test, rayCluster)
 		}, TestTimeoutMedium, 2*time.Second).ShouldNot(BeNil())
-
-		// After head pod deletion, the RayJob should reach a terminal state. If head recreation
-		// succeeds and the Ray job keeps running, the job may complete successfully.
 		g.Eventually(RayJob(test, rayJob.Namespace, rayJob.Name), TestTimeoutMedium).
-			Should(WithTransform(RayJobDeploymentStatus, Or(
-				Equal(rayv1.JobDeploymentStatusFailed),
-				Equal(rayv1.JobDeploymentStatusComplete),
-			)))
-
-		rayJob, err = GetRayJob(test, rayJob.Namespace, rayJob.Name)
-		g.Expect(err).NotTo(HaveOccurred())
-		if rayJob.Status.JobDeploymentStatus == rayv1.JobDeploymentStatusFailed {
-			g.Expect(rayJob.Status.Reason).To(Or(
+			Should(WithTransform(RayJobDeploymentStatus, Equal(rayv1.JobDeploymentStatusFailed)))
+		g.Eventually(RayJob(test, rayJob.Namespace, rayJob.Name), TestTimeoutMedium).
+			Should(WithTransform(RayJobReason, Or(
 				Equal(rayv1.AppFailed),
 				Equal(rayv1.JobDeploymentStatusTransitionGracePeriodExceeded),
 				Equal(rayv1.SubmissionFailed),
-			))
-		}
+			)))
 		// Cleanup
 		err = test.Client().Ray().RayV1().RayJobs(namespace.Name).Delete(test.Ctx(), rayJob.Name, metav1.DeleteOptions{})
 		g.Expect(err).NotTo(HaveOccurred())
@@ -360,7 +351,7 @@ env_vars:
 		_, err = test.Client().Ray().RayV1().RayJobs(namespace.Name).Apply(test.Ctx(), rayJobAC, TestApplyOptions)
 		g.Expect(err).To(HaveOccurred())
 		g.Eventually(RayJob(test, *rayJobAC.Namespace, *rayJobAC.Name)).
-			Should(WithTransform(RayJobManagedBy, Equal(ptr.To("kueue.x-k8s.io/multikueue"))))
+			Should(WithTransform(RayJobManagedBy, Equal(new("kueue.x-k8s.io/multikueue"))))
 
 		// Refresh the RayJob status and assert it has not been updated
 		g.Eventually(RayJob(test, rayJob.Namespace, rayJob.Name)).
@@ -593,7 +584,7 @@ env_vars:
 		// Use an invalid image to force ImagePullBackOff on the head pod, guaranteeing the RayCluster never becomes Ready and the RayJob
 		// stays in Initializing long enough for the TTL to fire.
 		invalidImageOpt := func(spec *rayv1ac.RayClusterSpecApplyConfiguration) *rayv1ac.RayClusterSpecApplyConfiguration {
-			spec.HeadGroupSpec.Template.Spec.Containers[0].Image = ptr.To("invalid-image-does-not-exist:v1.0.0")
+			spec.HeadGroupSpec.Template.Spec.Containers[0].Image = new("invalid-image-does-not-exist:v1.0.0")
 			return spec
 		}
 
@@ -620,33 +611,19 @@ env_vars:
 	})
 
 	test.T().Run("RayJob PreRunningDeadlineSeconds expires during Waiting state", func(_ *testing.T) {
-		const preRunningDeadlineSeconds int32 = 300
-
 		rayJobAC := rayv1ac.RayJob("ttl-waiting", namespace.Name).
 			WithSpec(rayv1ac.RayJobSpec().
 				WithSubmissionMode(rayv1.InteractiveMode).
 				WithRayClusterSpec(NewRayClusterSpec()).
 				WithShutdownAfterJobFinishes(true).
-				WithPreRunningDeadlineSeconds(preRunningDeadlineSeconds))
+				WithPreRunningDeadlineSeconds(60)) // larger value to reach Initializing state first
 
 		rayJob, err := test.Client().Ray().RayV1().RayJobs(namespace.Name).Apply(test.Ctx(), rayJobAC, TestApplyOptions)
 		g.Expect(err).NotTo(HaveOccurred())
 
-		// First confirm it enters Waiting state (generous deadline allows slow clusters to become Ready)
-		g.Eventually(RayJob(test, rayJob.Namespace, rayJob.Name), TestTimeoutLong).
+		// First confirm it enters Waiting state
+		g.Eventually(RayJob(test, rayJob.Namespace, rayJob.Name), TestTimeoutShort).
 			Should(WithTransform(RayJobDeploymentStatus, Equal(rayv1.JobDeploymentStatusWaiting)))
-
-		// Backdate StartTime so the preRunningDeadlineSeconds check fires on the next reconcile
-		var getErr error
-		rayJob, getErr = GetRayJob(test, rayJob.Namespace, rayJob.Name)
-		g.Expect(getErr).NotTo(HaveOccurred())
-		g.Expect(rayJob.Status.StartTime).NotTo(BeNil())
-		pastStartTime := metav1.NewTime(
-			time.Now().Add(-time.Duration(preRunningDeadlineSeconds+5) * time.Second),
-		)
-		rayJob.Status.StartTime = &pastStartTime
-		_, err = test.Client().Ray().RayV1().RayJobs(namespace.Name).UpdateStatus(test.Ctx(), rayJob, metav1.UpdateOptions{})
-		g.Expect(err).NotTo(HaveOccurred())
 
 		// The RayJob will transition to `Failed` because it has passed `preRunningDeadlineSeconds`.
 		LogWithTimestamp(test.T(), "Waiting for RayJob %s/%s to be 'Failed'", rayJob.Namespace, rayJob.Name)

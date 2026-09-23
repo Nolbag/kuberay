@@ -156,3 +156,22 @@ func TestWebhookStrictEnforcementOnOpenShift(t *testing.T) {
 		}
 	})
 }
+
+func TestWebhookMapsOpenShiftSecurityContract(t *testing.T) {
+	rayCluster := &rayv1.RayCluster{}
+	defaulter := &RayClusterDefaulter{RESTMapper: &mockOpenShiftRESTMapperUnit{}}
+
+	require.NoError(t, defaulter.Default(context.Background(), rayCluster))
+	require.NotNil(t, rayCluster.Spec.TLSOptions)
+	require.NotNil(t, rayCluster.Spec.TLSOptions.Enabled)
+	assert.True(t, *rayCluster.Spec.TLSOptions.Enabled)
+	require.NotNil(t, rayCluster.Spec.NetworkPolicy)
+	require.NotNil(t, rayCluster.Spec.NetworkPolicy.Mode)
+	assert.Equal(t, rayv1.NetworkPolicyDenyAllIngress, *rayCluster.Spec.NetworkPolicy.Mode)
+	assert.Len(t, rayCluster.Spec.NetworkPolicy.Head.IngressRules, 4)
+
+	// Admission can run more than once during an update; the compatibility rules
+	// must not accumulate duplicates.
+	require.NoError(t, defaulter.Default(context.Background(), rayCluster))
+	assert.Len(t, rayCluster.Spec.NetworkPolicy.Head.IngressRules, 4)
+}

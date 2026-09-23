@@ -10,6 +10,13 @@
 
 <!-- For example: "Closes #1234" -->
 
+## Labels
+
+<!-- Please add the appropriate labels to this PR. -->
+
+- [ ] If this PR has user-facing changes that require documentation updates at release time, I have added the `doc-updates-required` label.
+- [ ] If this PR contains breaking changes, I have added the `breaking-change` label.
+
 ## Checks
 
 - [ ] I've made sure the tests are passing.
@@ -18,7 +25,11 @@
   - [ ] Manual tests
   - [ ] This PR is not tested :(
 
-## Architecture
+<!-- If you selected "Manual tests" above, please fill in the section below. Otherwise you can remove it. -->
 
-- [ ] This PR does not change component boundaries or API contracts
-- [ ] OR: I have updated the relevant design doc / DEVELOPMENT.md
+### Manual test instructions
+
+<!--
+  Provide step-by-step instructions so reviewers can verify your changes.
+  Include any relevant screenshots or logs demonstrating the behavior.
+-->

@@ -11,7 +11,7 @@ It provides a web interface to explore the history of Ray jobs, tasks, actors, a
 The History Server consists of two main components:
 
 1. **Collector**: Runs as a sidecar container in Ray clusters to collect logs and metadata
-2. **History Server**: Central service that aggregates data from collectors and provides a web UI
+2. **History Server**: Serves a Ray Dashboard compatible HTTP API and ingests cluster sessions' events on demand
 
 ## Building
 
@@ -63,25 +63,25 @@ docker buildx build -t <image-name>:<tag> --platform linux/amd64,linux/arm64 . -
 
 The history server can be configured using command-line flags:
 
-- `--runtime-class-name`: Storage backend type (e.g., "s3", "aliyunoss", "localtest")
+- `--storage-backend`: Storage backend type (e.g., "s3", "aliyunoss", "localtest")
 - `--ray-root-dir`: Root directory for Ray logs
 - `--kubeconfigs`: Path to kubeconfig file(s) for accessing Kubernetes clusters
 - `--dashboard-dir`: Directory containing dashboard assets (default: "/dashboard")
-- `--runtime-class-config-path`: Path to runtime class configuration file
+- `--storage-backend-config-path`: Path to storage backend configuration file
 
 ### Collector Configuration
 
 The collector can be configured using command-line flags:
 
 - `--role`: Node role ("Head" or "Worker")
-- `--runtime-class-name`: Storage backend type (e.g., "s3", "aliyunoss")
+- `--storage-backend`: Storage backend type (e.g., "s3", "aliyunoss")
 - `--ray-cluster-name`: Name of the Ray cluster
-- `--ray-cluster-id`: ID of the Ray cluster
+- `--ray-cluster-namespace`: Namespace of the Ray cluster
 - `--ray-root-dir`: Root directory for Ray logs
 - `--log-batching`: Number of log entries to batch before writing
 - `--events-port`: Port for the events server
 - `--push-interval`: Interval between pushes to storage
-- `--runtime-class-config-path`: Path to runtime class configuration file
+- `--storage-backend-config-path`: Path to storage backend configuration file
 
 ## Supported Storage Backends
 
@@ -99,7 +99,7 @@ Each backend requires specific configuration parameters passed through environme
 
 ```bash
 ./output/bin/historyserver \
-  --runtime-class-name=s3 \
+  --storage-backend=s3 \
   --ray-root-dir=/path/to/logs
 ```
 
@@ -108,7 +108,7 @@ Each backend requires specific configuration parameters passed through environme
 ```bash
 ./output/bin/collector \
   --role=Head \
-  --runtime-class-name=s3 \
+  --storage-backend=s3 \
   --ray-cluster-name=my-cluster \
   --ray-root-dir=/path/to/logs
 ```
@@ -138,6 +138,78 @@ To run lint checks:
 ```bash
 make alllint
 ```
+
+## Smoke Tests
+
+### 1. Deploy History Server
+
+Apply MinIO and the History Server manifests:
+
+```bash
+kubectl apply -f historyserver/config/minio.yaml
+kubectl apply -f historyserver/config/service_account.yaml
+kubectl apply -f historyserver/config/historyserver.yaml
+```
+
+Port-forward the HS service:
+
+```bash
+kubectl port-forward svc/historyserver 8080:30080
+```
+
+### 2. Generate a Dead Session
+
+Submit the sample RayJob; it creates its own cluster with the collector sidecar, runs a
+deterministic workload, and shuts the cluster down after the job finishes:
+
+```bash
+kubectl apply -f historyserver/config/rayjob.yaml
+kubectl wait rayjob/rayjob-historyserver --for=jsonpath='{.status.jobStatus}=SUCCEEDED' --timeout=5m
+
+# The cluster shuts down automatically 30s after the job finishes
+# (shutdownAfterJobFinishes + ttlSecondsAfterFinished), producing a 'dead' session.
+# Delete the RayJob only to skip the TTL wait:
+kubectl delete -f historyserver/config/rayjob.yaml
+
+# Discover the session name. /clusters lists both live and dead sessions;
+# dead sessions carry the `session_*` name you'll feed into /enter_cluster.
+curl -sS http://localhost:8080/clusters
+```
+
+### 3. Cold Path (first visit)
+
+Trigger the lazy load synchronously. Replace `<session>` with the session name from §2:
+
+```bash
+time curl -s -o /dev/null \
+  http://localhost:8080/enter_cluster/default/rayjob/rayjob-historyserver/<session>
+```
+
+> [!NOTE]
+> Cold path runs synchronously: K8s probe + event parse. Expect this to take seconds. Subsequent endpoint calls
+> (`/api/v0/jobs`, `/api/v0/tasks/...`) read from in-memory state populated by this call.
+
+### 4. Warm Path (subsequent visits on same replica)
+
+Re-enter the same cluster:
+
+```bash
+time curl -s -o /dev/null \
+  http://localhost:8080/enter_cluster/default/rayjob/rayjob-historyserver/<session>
+```
+
+> [!NOTE]
+> Warm path returns immediately — SessionLoader's loaded-session set fast-paths the request without re-parsing. If the HS
+> process restarts, the next visit returns to cold-path latency.
+
+### 5. Tail Logs
+
+```bash
+kubectl logs -f -l app=historyserver --tail=50
+```
+
+You should see one `current eventFileList for cluster ...` line (and the per-file `Reading event file: ...` entries)
+per first-time cold-path call. Warm-path calls produce no parse log lines.
 
 ## Deployment
 

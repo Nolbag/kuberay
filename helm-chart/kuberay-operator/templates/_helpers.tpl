@@ -70,6 +70,17 @@ FeatureGates
 {{- end }}
 {{- end }}
 
+{{/*
+Whether the KubernetesWAS feature gate is enabled in .Values.featureGates.
+*/}}
+{{- define "kuberay.kubernetesWASEnabled" -}}
+{{- range .Values.featureGates -}}
+{{- if and (eq .name "KubernetesWAS") .enabled -}}
+true
+{{- end -}}
+{{- end -}}
+{{- end }}
+
 {{- /* Create the name of the service to use. */ -}}
 {{- define "kuberay-operator.service.name" -}}
 {{- include "kuberay-operator.fullname" . }}
@@ -150,10 +161,8 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - configmaps
-  - events
+  - persistentvolumeclaims
   - pods/status
-  - serviceaccounts
   - services
   verbs:
   - create
@@ -200,6 +209,17 @@ rules:
   - delete
   - get
   - list
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - serviceaccounts
+  verbs:
+  - create
+  - delete
+  - get
+  - list
   - watch
 - apiGroups:
   - ""
@@ -210,28 +230,6 @@ rules:
   - get
   - patch
   - update
-- apiGroups:
-  - apps
-  resources:
-  - deployments
-  verbs:
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - authentication.k8s.io
-  resources:
-  - tokenreviews
-  verbs:
-  - create
-- apiGroups:
-  - authorization.k8s.io
-  resources:
-  - subjectaccessreviews
-  verbs:
-  - create
 - apiGroups:
   - batch
   resources:
@@ -248,13 +246,10 @@ rules:
   - cert-manager.io
   resources:
   - certificates
-  - issuers
   verbs:
   - create
-  - delete
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:
@@ -263,8 +258,15 @@ rules:
   - certificates/status
   verbs:
   - get
-  - patch
-  - update
+- apiGroups:
+  - cert-manager.io
+  resources:
+  - issuers
+  verbs:
+  - create
+  - get
+  - list
+  - watch
 - apiGroups:
   - coordination.k8s.io
   resources:
@@ -283,7 +285,15 @@ rules:
   - list
   - watch
 - apiGroups:
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
   - extensions
+  - networking.k8s.io
   resources:
   - ingresses
   verbs:
@@ -298,23 +308,12 @@ rules:
   - gateway.networking.k8s.io
   resources:
   - gateways
-  verbs:
-  - create
-  - get
-  - list
-  - update
-  - watch
-- apiGroups:
-  - gateway.networking.k8s.io
-  resources:
   - httproutes
-  - referencegrants
   verbs:
   - create
   - delete
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:
@@ -328,24 +327,13 @@ rules:
 - apiGroups:
   - networking.k8s.io
   resources:
-  - ingresses
   - networkpolicies
   verbs:
   - create
   - delete
   - get
   - list
-  - patch
   - update
-  - watch
-- apiGroups:
-  - operator.openshift.io
-  resources:
-  - kubeapiservers
-  - kubeapiservers/status
-  verbs:
-  - get
-  - list
   - watch
 - apiGroups:
   - ray.io
@@ -385,23 +373,12 @@ rules:
 - apiGroups:
   - rbac.authorization.k8s.io
   resources:
-  - clusterrolebindings
-  - clusterroles
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - rbac.authorization.k8s.io
-  resources:
   - rolebindings
   verbs:
   - create
   - delete
   - get
   - list
-  - patch
-  - update
   - watch
 - apiGroups:
   - rbac.authorization.k8s.io
@@ -426,6 +403,21 @@ rules:
   - patch
   - update
   - watch
+{{- if .kubernetesWASEnabled }}
+- apiGroups:
+  - scheduling.k8s.io
+  resources:
+  - podgroups
+  - workloads
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+{{- end -}}
 {{- if or .batchSchedulerEnabled (eq .batchSchedulerName "volcano") }}
 - apiGroups:
   - scheduling.volcano.sh
