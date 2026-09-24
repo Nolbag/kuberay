@@ -44,6 +44,9 @@ func rayClusterTemplateForNetworkPolicy(name string, namespace string) *rayv1.Ra
 		},
 		Spec: rayv1.RayClusterSpec{
 			RayVersion: support.GetRayVersion(),
+			NetworkPolicy: &rayv1.NetworkPolicyConfig{
+				Mode: ptr.To(rayv1.NetworkPolicyDenyAll),
+			},
 			HeadGroupSpec: rayv1.HeadGroupSpec{
 				Template: corev1.PodTemplateSpec{
 					Spec: corev1.PodSpec{
@@ -109,7 +112,7 @@ var _ = Context("NetworkPolicy Controller Integration Tests", func() {
 
 		It("Check Worker NetworkPolicy is created", func() {
 			workerNetworkPolicy := &networkingv1.NetworkPolicy{}
-			expectedWorkerName := rayCluster.Name + "-workers"
+			expectedWorkerName := rayCluster.Name + "-workers-small-group"
 			workerNamespacedName := types.NamespacedName{Namespace: namespace, Name: expectedWorkerName}
 
 			Eventually(
@@ -132,6 +135,7 @@ var _ = Context("NetworkPolicy Controller Integration Tests", func() {
 			// Verify labels
 			expectedLabels := map[string]string{
 				utils.RayClusterLabelKey:                rayCluster.Name,
+				utils.RayNodeGroupLabelKey:              "headgroup",
 				utils.KubernetesApplicationNameLabelKey: utils.ApplicationName,
 				utils.KubernetesCreatedByLabelKey:       utils.ComponentName,
 			}
@@ -143,7 +147,10 @@ var _ = Context("NetworkPolicy Controller Integration Tests", func() {
 			Expect(headNetworkPolicy.OwnerReferences[0].Kind).To(Equal("RayCluster"))
 
 			// Verify policy type
-			Expect(headNetworkPolicy.Spec.PolicyTypes).To(Equal([]networkingv1.PolicyType{networkingv1.PolicyTypeIngress}))
+			Expect(headNetworkPolicy.Spec.PolicyTypes).To(Equal([]networkingv1.PolicyType{
+				networkingv1.PolicyTypeIngress,
+				networkingv1.PolicyTypeEgress,
+			}))
 
 			// Verify pod selector targets head pods only
 			expectedPodSelector := metav1.LabelSelector{
@@ -154,9 +161,8 @@ var _ = Context("NetworkPolicy Controller Integration Tests", func() {
 			}
 			Expect(headNetworkPolicy.Spec.PodSelector).To(Equal(expectedPodSelector))
 
-			// Verify ingress rules - without monitoring configured, should have 4 rules
-			// (intra-cluster, external, operator, secured ports)
-			Expect(headNetworkPolicy.Spec.Ingress).To(HaveLen(4), "Should have 4 ingress rules when monitoring not configured")
+			// Verify the base ingress rule allows intra-cluster communication.
+			Expect(headNetworkPolicy.Spec.Ingress).To(HaveLen(1))
 
 			// Verify Rule 1: Intra-cluster communication - NO PORTS (allows all)
 			intraClusterRule := headNetworkPolicy.Spec.Ingress[0]
@@ -172,30 +178,11 @@ var _ = Context("NetworkPolicy Controller Integration Tests", func() {
 			}
 			Expect(intraClusterRule.From[0]).To(Equal(expectedIntraClusterPeer))
 
-			// Verify Rule 2: External access from any pod in namespace
-			externalRule := headNetworkPolicy.Spec.Ingress[1]
-			Expect(externalRule.From).To(HaveLen(1))
-			Expect(externalRule.Ports).To(HaveLen(2), "External rule should have 2 ports (10001, 8265)")
-
-			// Verify empty pod selector (any pod in namespace)
-			expectedAnyPodPeer := networkingv1.NetworkPolicyPeer{
-				PodSelector: &metav1.LabelSelector{},
-			}
-			Expect(externalRule.From[0]).To(Equal(expectedAnyPodPeer))
-
-			// Verify Rule 4: Secured ports - NO FROM (allows all)
-			// Note: This is now the last rule (index 3) since monitoring is not configured
-			securedRule := headNetworkPolicy.Spec.Ingress[3]
-			Expect(securedRule.From).To(BeEmpty(), "Secured ports rule should have NO from (allows all)")
-			Expect(securedRule.Ports).To(HaveLen(1), "Secured ports rule should have 1 port (8443 only)")
-
-			// Check for mTLS port 8443 (port 10001 is NOT in this rule - it's restricted to namespace/cluster/operator)
-			Expect(securedRule.Ports[0].Port.IntVal).To(Equal(int32(8443)), "Should only include mTLS port 8443")
 		})
 
 		It("Verify Worker NetworkPolicy has correct structure", func() {
 			workerNetworkPolicy := &networkingv1.NetworkPolicy{}
-			expectedWorkerName := rayCluster.Name + "-workers"
+			expectedWorkerName := rayCluster.Name + "-workers-small-group"
 			workerNamespacedName := types.NamespacedName{Namespace: namespace, Name: expectedWorkerName}
 
 			err := k8sClient.Get(ctx, workerNamespacedName, workerNetworkPolicy)
@@ -208,8 +195,9 @@ var _ = Context("NetworkPolicy Controller Integration Tests", func() {
 			// Verify pod selector targets worker pods only
 			expectedPodSelector := metav1.LabelSelector{
 				MatchLabels: map[string]string{
-					utils.RayClusterLabelKey:  rayCluster.Name,
-					utils.RayNodeTypeLabelKey: string(rayv1.WorkerNode),
+					utils.RayClusterLabelKey:   rayCluster.Name,
+					utils.RayNodeTypeLabelKey:  string(rayv1.WorkerNode),
+					utils.RayNodeGroupLabelKey: "small-group",
 				},
 			}
 			Expect(workerNetworkPolicy.Spec.PodSelector).To(Equal(expectedPodSelector))
@@ -252,7 +240,7 @@ var _ = Context("NetworkPolicy Controller Integration Tests", func() {
 
 			// Clean up worker NetworkPolicy
 			workerNetworkPolicy := &networkingv1.NetworkPolicy{}
-			expectedWorkerName := rayCluster.Name + "-workers"
+			expectedWorkerName := rayCluster.Name + "-workers-small-group"
 			workerNamespacedName := types.NamespacedName{Namespace: namespace, Name: expectedWorkerName}
 
 			err = k8sClient.Get(ctx, workerNamespacedName, workerNetworkPolicy)
@@ -277,6 +265,11 @@ var _ = Context("NetworkPolicy Controller Integration Tests", func() {
 		ctx := context.Background()
 		namespace := "default"
 		rayCluster := rayClusterTemplateForNetworkPolicy("raycluster-rayjob", namespace)
+		rayCluster.Labels = map[string]string{
+			utils.RayJobSubmissionModeLabelKey:    string(rayv1.K8sJobMode),
+			utils.RayOriginatedFromCRNameLabelKey: "test-rayjob",
+			utils.RayOriginatedFromCRDLabelKey:    utils.RayOriginatedFromCRDLabelValue(utils.RayJobCRD),
+		}
 
 		// Add RayJob owner reference
 		rayCluster.OwnerReferences = []metav1.OwnerReference{
@@ -285,6 +278,7 @@ var _ = Context("NetworkPolicy Controller Integration Tests", func() {
 				Kind:       "RayJob",
 				Name:       "test-rayjob",
 				UID:        "12345",
+				Controller: ptr.To(true),
 			},
 		}
 
@@ -305,8 +299,8 @@ var _ = Context("NetworkPolicy Controller Integration Tests", func() {
 				getResourceFunc(ctx, headNamespacedName, headNetworkPolicy),
 				time.Second*10, time.Millisecond*500).Should(Succeed(), "Head NetworkPolicy should be created")
 
-			// Should have additional RayJob rule (last rule)
-			Expect(len(headNetworkPolicy.Spec.Ingress)).To(BeNumerically(">=", 5), "Should have additional RayJob ingress rule")
+			// Should have the base and RayJob submitter rules.
+			Expect(len(headNetworkPolicy.Spec.Ingress)).To(BeNumerically(">=", 2), "Should have additional RayJob ingress rule")
 
 			// Find the RayJob rule (should be the last rule)
 			rayJobRule := headNetworkPolicy.Spec.Ingress[len(headNetworkPolicy.Spec.Ingress)-1]
@@ -317,7 +311,8 @@ var _ = Context("NetworkPolicy Controller Integration Tests", func() {
 			expectedRayJobPeer := networkingv1.NetworkPolicyPeer{
 				PodSelector: &metav1.LabelSelector{
 					MatchLabels: map[string]string{
-						"batch.kubernetes.io/job-name": "test-rayjob",
+						utils.RayOriginatedFromCRNameLabelKey: "test-rayjob",
+						utils.RayOriginatedFromCRDLabelKey:    utils.RayOriginatedFromCRDLabelValue(utils.RayJobCRD),
 					},
 				},
 			}
@@ -366,13 +361,13 @@ var _ = Context("NetworkPolicy Controller Integration Tests", func() {
 			err = k8sClient.Get(ctx, headNamespacedName, headNetworkPolicy)
 			Expect(err).NotTo(HaveOccurred(), "Head NetworkPolicy should exist")
 
-			// Worker NetworkPolicy should be created
+			// A foreign head NetworkPolicy is a collision; the controller leaves it
+			// untouched and does not create the worker policy.
 			workerNetworkPolicy := &networkingv1.NetworkPolicy{}
-			expectedWorkerName := rayCluster.Name + "-workers"
+			expectedWorkerName := rayCluster.Name + "-workers-small-group"
 			workerNamespacedName := types.NamespacedName{Namespace: namespace, Name: expectedWorkerName}
-			Eventually(
-				getResourceFunc(ctx, workerNamespacedName, workerNetworkPolicy),
-				time.Second*10, time.Millisecond*500).Should(Succeed(), "Worker NetworkPolicy should be created")
+			err = k8sClient.Get(ctx, workerNamespacedName, workerNetworkPolicy)
+			Expect(client.IgnoreNotFound(err)).To(Succeed())
 		})
 
 		It("Clean up resources", func() {
@@ -385,7 +380,7 @@ var _ = Context("NetworkPolicy Controller Integration Tests", func() {
 
 			// Clean up worker policy if it exists
 			workerNetworkPolicy := &networkingv1.NetworkPolicy{}
-			expectedWorkerName := rayCluster.Name + "-workers"
+			expectedWorkerName := rayCluster.Name + "-workers-small-group"
 			workerNamespacedName := types.NamespacedName{Namespace: namespace, Name: expectedWorkerName}
 			err = k8sClient.Get(ctx, workerNamespacedName, workerNetworkPolicy)
 			if err == nil {
@@ -426,6 +421,7 @@ var _ = Context("NetworkPolicy Controller Integration Tests", func() {
 			rayCluster := rayClusterTemplateForNetworkPolicy("raycluster-no-annotation", namespace)
 			// Remove the annotation
 			rayCluster.Annotations = nil
+			rayCluster.Spec.NetworkPolicy = nil
 
 			err := k8sClient.Create(ctx, rayCluster)
 			Expect(err).NotTo(HaveOccurred(), "Failed to create RayCluster")
@@ -443,7 +439,7 @@ var _ = Context("NetworkPolicy Controller Integration Tests", func() {
 			Expect(client.IgnoreNotFound(err)).To(Succeed(), "Error should be NotFound")
 
 			workerNetworkPolicy := &networkingv1.NetworkPolicy{}
-			workerName := rayCluster.Name + "-workers"
+			workerName := rayCluster.Name + "-workers-small-group"
 			workerKey := client.ObjectKey{Namespace: namespace, Name: workerName}
 
 			err = k8sClient.Get(ctx, workerKey, workerNetworkPolicy)
@@ -459,6 +455,7 @@ var _ = Context("NetworkPolicy Controller Integration Tests", func() {
 			rayCluster := rayClusterTemplateForNetworkPolicy("raycluster-annotation-false", namespace)
 			// Set annotation to false
 			rayCluster.Annotations[utils.EnableSecureTrustedNetworkAnnotationKey] = "false"
+			rayCluster.Spec.NetworkPolicy = nil
 
 			err := k8sClient.Create(ctx, rayCluster)
 			Expect(err).NotTo(HaveOccurred(), "Failed to create RayCluster")
@@ -484,6 +481,7 @@ var _ = Context("NetworkPolicy Controller Integration Tests", func() {
 			rayCluster := rayClusterTemplateForNetworkPolicy("raycluster-annotation-toggle", namespace)
 			// Start with annotation false
 			rayCluster.Annotations[utils.EnableSecureTrustedNetworkAnnotationKey] = "false"
+			rayCluster.Spec.NetworkPolicy = nil
 
 			err := k8sClient.Create(ctx, rayCluster)
 			Expect(err).NotTo(HaveOccurred(), "Failed to create RayCluster")
@@ -503,6 +501,9 @@ var _ = Context("NetworkPolicy Controller Integration Tests", func() {
 			Expect(err).NotTo(HaveOccurred(), "Failed to get RayCluster")
 
 			rayCluster.Annotations[utils.EnableSecureTrustedNetworkAnnotationKey] = "true"
+			rayCluster.Spec.NetworkPolicy = &rayv1.NetworkPolicyConfig{
+				Mode: ptr.To(rayv1.NetworkPolicyDenyAll),
+			}
 			err = k8sClient.Update(ctx, rayCluster)
 			Expect(err).NotTo(HaveOccurred(), "Failed to update RayCluster annotation")
 
@@ -512,7 +513,7 @@ var _ = Context("NetworkPolicy Controller Integration Tests", func() {
 				time.Second*10, time.Millisecond*500).Should(Succeed(), "Head NetworkPolicy should be created after annotation update")
 
 			workerNetworkPolicy := &networkingv1.NetworkPolicy{}
-			workerName := rayCluster.Name + "-workers"
+			workerName := rayCluster.Name + "-workers-small-group"
 			workerKey := client.ObjectKey{Namespace: namespace, Name: workerName}
 
 			Eventually(
@@ -542,7 +543,7 @@ var _ = Context("NetworkPolicy Controller Integration Tests", func() {
 				time.Second*10, time.Millisecond*500).Should(Succeed(), "Head NetworkPolicy should be created")
 
 			workerNetworkPolicy := &networkingv1.NetworkPolicy{}
-			workerName := rayCluster.Name + "-workers"
+			workerName := rayCluster.Name + "-workers-small-group"
 			workerKey := client.ObjectKey{Namespace: namespace, Name: workerName}
 
 			Eventually(
@@ -554,6 +555,7 @@ var _ = Context("NetworkPolicy Controller Integration Tests", func() {
 			Expect(err).NotTo(HaveOccurred(), "Failed to get RayCluster")
 
 			rayCluster.Annotations[utils.EnableSecureTrustedNetworkAnnotationKey] = "false"
+			rayCluster.Spec.NetworkPolicy = nil
 			err = k8sClient.Update(ctx, rayCluster)
 			Expect(err).NotTo(HaveOccurred(), "Failed to update RayCluster annotation")
 

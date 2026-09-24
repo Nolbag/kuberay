@@ -8,9 +8,15 @@ package utils
 import (
 	"fmt"
 	"os"
+	"reflect"
 	"slices"
 	"strings"
 
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
 )
@@ -57,4 +63,98 @@ func IsOpenShiftCluster(config *rest.Config) (bool, error) {
 // ShouldUseIngressOnOpenShift determines if Ingress should be used instead of Route on OpenShift.
 func ShouldUseIngressOnOpenShift() bool {
 	return strings.ToLower(os.Getenv(USE_INGRESS_ON_OPENSHIFT)) == "true"
+}
+
+// EnsureOpenShiftRayClusterSecurity applies the OpenShift security contract to
+// a RayCluster. It is deliberately idempotent so it can migrate existing
+// RayClusters as they are reconciled after an operator upgrade.
+func EnsureOpenShiftRayClusterSecurity(cluster *rayv1.RayCluster) bool {
+	original := cluster.DeepCopy()
+
+	if cluster.Annotations == nil {
+		cluster.Annotations = make(map[string]string)
+	}
+	cluster.Annotations[EnableSecureTrustedNetworkAnnotationKey] = "true"
+
+	enabled := true
+	cluster.Spec.TLSOptions = &rayv1.TLSOptions{Enabled: &enabled}
+	ensureOpenShiftNetworkPolicy(&cluster.Spec)
+
+	falseValue := false
+	cluster.Spec.HeadGroupSpec.EnableIngress = &falseValue
+
+	return !reflect.DeepEqual(original.Annotations, cluster.Annotations) ||
+		!reflect.DeepEqual(original.Spec, cluster.Spec)
+}
+
+func ensureOpenShiftNetworkPolicy(spec *rayv1.RayClusterSpec) {
+	mode := rayv1.NetworkPolicyDenyAllIngress
+	if spec.NetworkPolicy == nil {
+		spec.NetworkPolicy = &rayv1.NetworkPolicyConfig{}
+	}
+	spec.NetworkPolicy.Mode = &mode
+	if spec.NetworkPolicy.Head == nil {
+		spec.NetworkPolicy.Head = &rayv1.NetworkPolicyRules{}
+	}
+	if spec.NetworkPolicy.Worker == nil {
+		spec.NetworkPolicy.Worker = &rayv1.NetworkPolicyRules{}
+	}
+
+	tcp := corev1.ProtocolTCP
+	port := func(value int32) networkingv1.NetworkPolicyPort {
+		p := intstr.FromInt32(value)
+		return networkingv1.NetworkPolicyPort{Protocol: &tcp, Port: &p}
+	}
+	appendIngress := func(rules []networkingv1.NetworkPolicyIngressRule, rule networkingv1.NetworkPolicyIngressRule) []networkingv1.NetworkPolicyIngressRule {
+		for _, existing := range rules {
+			if reflect.DeepEqual(existing, rule) {
+				return rules
+			}
+		}
+		return append(rules, rule)
+	}
+
+	// Same-namespace dashboard/client access.
+	spec.NetworkPolicy.Head.IngressRules = appendIngress(spec.NetworkPolicy.Head.IngressRules, networkingv1.NetworkPolicyIngressRule{
+		From:  []networkingv1.NetworkPolicyPeer{{PodSelector: &metav1.LabelSelector{}}},
+		Ports: []networkingv1.NetworkPolicyPort{port(8265), port(10001)},
+	})
+
+	// The authenticated proxy is deliberately reachable from any namespace; the
+	// proxy itself performs the authentication check on port 8443.
+	spec.NetworkPolicy.Head.IngressRules = appendIngress(spec.NetworkPolicy.Head.IngressRules, networkingv1.NetworkPolicyIngressRule{
+		Ports: []networkingv1.NetworkPolicyPort{port(8443)},
+	})
+
+	// Allow the operator and Gateway API ingress to reach the dashboard/client.
+	namespaces := []string{}
+	if namespace := os.Getenv("APPLICATION_NAMESPACE"); namespace != "" {
+		namespaces = append(namespaces, namespace)
+	}
+	if namespace := os.Getenv("POD_NAMESPACE"); namespace != "" {
+		namespaces = append(namespaces, namespace)
+	}
+	if len(namespaces) == 0 {
+		namespaces = []string{"redhat-ods-applications", "opendatahub"}
+	}
+	operatorPeer := networkingv1.NetworkPolicyPeer{
+		PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{KubernetesApplicationNameLabelKey: ApplicationName}},
+		NamespaceSelector: &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
+			Key: corev1.LabelMetadataName, Operator: metav1.LabelSelectorOpIn, Values: namespaces,
+		}}},
+	}
+	spec.NetworkPolicy.Head.IngressRules = appendIngress(spec.NetworkPolicy.Head.IngressRules, networkingv1.NetworkPolicyIngressRule{
+		From: []networkingv1.NetworkPolicyPeer{operatorPeer}, Ports: []networkingv1.NetworkPolicyPort{port(8265), port(10001)},
+	})
+
+	gatewayNamespace := os.Getenv("GATEWAY_NAMESPACE")
+	if gatewayNamespace == "" {
+		gatewayNamespace = "openshift-ingress"
+	}
+	spec.NetworkPolicy.Head.IngressRules = appendIngress(spec.NetworkPolicy.Head.IngressRules, networkingv1.NetworkPolicyIngressRule{
+		From: []networkingv1.NetworkPolicyPeer{{NamespaceSelector: &metav1.LabelSelector{MatchExpressions: []metav1.LabelSelectorRequirement{{
+			Key: corev1.LabelMetadataName, Operator: metav1.LabelSelectorOpIn, Values: []string{gatewayNamespace},
+		}}}}},
+		Ports: []networkingv1.NetworkPolicyPort{port(8265)},
+	})
 }

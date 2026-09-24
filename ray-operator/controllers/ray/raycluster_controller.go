@@ -356,6 +356,19 @@ func (r *RayClusterReconciler) rayClusterReconcile(ctx context.Context, instance
 		return ctrl.Result{}, nil
 	}
 
+	// The mutating webhook only runs when the API server receives a create or
+	// update. Apply the same contract here so RayClusters that predate the
+	// webhook are migrated on their first reconciliation after an upgrade.
+	if r.options.IsOpenShift && features.Enabled(features.RayClusterMTLS) &&
+		features.Enabled(features.RayClusterNetworkPolicy) &&
+		utils.EnsureOpenShiftRayClusterSecurity(instance) {
+		logger.Info("Migrating RayCluster to the OpenShift security contract")
+		if err := r.Update(ctx, instance); err != nil {
+			return ctrl.Result{RequeueAfter: DefaultRequeueDuration}, err
+		}
+		return ctrl.Result{RequeueAfter: DefaultRequeueDuration}, nil
+	}
+
 	reconcileFuncs := []reconcileFunc{
 		r.reconcileAutoscalerServiceAccount,
 		r.reconcileAutoscalerRole,

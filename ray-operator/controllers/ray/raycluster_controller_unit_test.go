@@ -2513,6 +2513,7 @@ func Test_RedisCleanupFeatureFlag(t *testing.T) {
 	newScheme := runtime.NewScheme()
 	_ = rayv1.AddToScheme(newScheme)
 	_ = corev1.AddToScheme(newScheme)
+	_ = networkingv1.AddToScheme(newScheme)
 	_ = certmanagerv1.AddToScheme(newScheme)
 
 	// Prepare a RayCluster with the GCS FT enabled and Autoscaling disabled.
@@ -2629,6 +2630,7 @@ func Test_RedisCleanupSkippedForEmbeddedBackend(t *testing.T) {
 	newScheme := runtime.NewScheme()
 	_ = rayv1.AddToScheme(newScheme)
 	_ = corev1.AddToScheme(newScheme)
+	_ = networkingv1.AddToScheme(newScheme)
 
 	cluster := testRayCluster.DeepCopy()
 	cluster.Spec.EnableInTreeAutoscaling = nil
@@ -3474,6 +3476,7 @@ func Test_ReconcileManagedBy(t *testing.T) {
 	_ = rayv1.AddToScheme(newScheme)
 	_ = corev1.AddToScheme(newScheme)
 	_ = batchv1.AddToScheme(newScheme)
+	_ = networkingv1.AddToScheme(newScheme)
 
 	tests := []struct {
 		managedBy       *string
@@ -4656,4 +4659,46 @@ func TestReconcile_TLSAutoGenerate_RejectsWithoutCertManager(t *testing.T) {
 		}
 	}
 	assert.True(t, foundEvent, "expected a warning event about cert-manager")
+}
+
+func TestRayClusterReconcileMigratesOpenShiftSecurityContract(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.RayClusterMTLS, true)
+	features.SetFeatureGateDuringTest(t, features.RayClusterNetworkPolicy, true)
+
+	cluster := rayClusterTemplate("existing-cluster", "default")
+	cluster.Annotations = nil
+	cluster.Spec.TLSOptions = nil
+	cluster.Spec.NetworkPolicy = nil
+	cluster.Spec.HeadGroupSpec.EnableIngress = ptr.To(true)
+
+	fakeClient := clientFake.NewClientBuilder().
+		WithScheme(scheme.Scheme).
+		WithRuntimeObjects(cluster).
+		WithStatusSubresource(cluster).
+		Build()
+
+	reconciler := &RayClusterReconciler{
+		Client:                     fakeClient,
+		Scheme:                     scheme.Scheme,
+		Recorder:                   events.NewFakeRecorder(10),
+		rayClusterScaleExpectation: expectations.NewRayClusterScaleExpectation(fakeClient),
+		options: RayClusterReconcilerOptions{
+			IsOpenShift:          true,
+			CertManagerAvailable: true,
+		},
+	}
+
+	result, err := reconciler.rayClusterReconcile(context.Background(), cluster)
+	require.NoError(t, err)
+	assert.Equal(t, ctrl.Result{RequeueAfter: DefaultRequeueDuration}, result)
+
+	migrated := &rayv1.RayCluster{}
+	require.NoError(t, fakeClient.Get(context.Background(), client.ObjectKeyFromObject(cluster), migrated))
+	assert.Equal(t, "true", migrated.Annotations[utils.EnableSecureTrustedNetworkAnnotationKey])
+	require.NotNil(t, migrated.Spec.TLSOptions)
+	assert.True(t, *migrated.Spec.TLSOptions.Enabled)
+	require.NotNil(t, migrated.Spec.NetworkPolicy)
+	assert.Equal(t, rayv1.NetworkPolicyDenyAllIngress, *migrated.Spec.NetworkPolicy.Mode)
+	require.NotNil(t, migrated.Spec.HeadGroupSpec.EnableIngress)
+	assert.False(t, *migrated.Spec.HeadGroupSpec.EnableIngress)
 }

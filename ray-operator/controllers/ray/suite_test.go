@@ -25,6 +25,8 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -35,11 +37,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	gwv1 "sigs.k8s.io/gateway-api/apis/v1"
+	gatewayv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils/dashboardclient"
 	"github.com/ray-project/kuberay/ray-operator/internal/managercache"
+	"github.com/ray-project/kuberay/ray-operator/pkg/features"
 )
 
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to
@@ -77,10 +82,16 @@ func TestAPIs(t *testing.T) {
 
 var _ = BeforeSuite(func(ctx SpecContext) {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
+	featureGateErr := utilfeature.DefaultMutableFeatureGate.Set(string(features.RayClusterNetworkPolicy) + "=true")
+	Expect(featureGateErr).NotTo(HaveOccurred(), "failed to enable NetworkPolicy feature gate")
 
 	By("bootstrapping test environment")
+	crdDirectoryPaths := []string{filepath.Join("..", "..", "config", "crd", "bases")}
+	if gatewayAPICRDDirectory := os.Getenv("GATEWAY_API_CRD_DIRECTORY"); gatewayAPICRDDirectory != "" {
+		crdDirectoryPaths = append(crdDirectoryPaths, gatewayAPICRDDirectory)
+	}
 	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd", "bases")},
+		CRDDirectoryPaths:     crdDirectoryPaths,
 		ErrorIfCRDPathMissing: true,
 	}
 
@@ -95,12 +106,18 @@ var _ = BeforeSuite(func(ctx SpecContext) {
 	// Add networking scheme for NetworkPolicy resources
 	err = networkingv1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
+	err = gwv1.Install(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+	err = gatewayv1beta1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:scheme
 
 	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	Expect(err).ToNot(HaveOccurred())
 	Expect(k8sClient).ToNot(BeNil())
+	err = k8sClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ray-system"}})
+	Expect(client.IgnoreAlreadyExists(err)).NotTo(HaveOccurred(), "failed to create platform namespace")
 
 	// The RAYCLUSTER_DEFAULT_REQUEUE_SECONDS_ENV is an insurance to keep reconciliation continuously triggered to hopefully fix an unexpected state.
 	// In a production environment, the requeue period is set to five minutes by default, which is relatively infrequent.
@@ -141,6 +158,10 @@ var _ = BeforeSuite(func(ctx SpecContext) {
 	rayJobOptions := RayJobReconcilerOptions{}
 	err = NewRayJobReconciler(ctx, mgr, rayJobOptions, testClientProvider).SetupWithManager(mgr, 1)
 	Expect(err).NotTo(HaveOccurred(), "failed to setup RayJob controller")
+
+	authController := NewAuthenticationController(mgr, options)
+	err = authController.SetupWithManager(mgr)
+	Expect(err).NotTo(HaveOccurred(), "failed to setup Authentication controller")
 
 	// NetworkPolicy controller
 	networkPolicyController, err := NewNetworkPolicyController(mgr)
