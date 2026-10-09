@@ -26,7 +26,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	clientFake "sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -279,7 +278,7 @@ func TestFullReconciliationLifecycle(t *testing.T) {
 		},
 		Spec: rayv1.RayClusterSpec{
 			HeadGroupSpec: rayv1.HeadGroupSpec{
-				EnableIngress: ptr.To(true), // Pre-enable ingress to avoid update conflicts
+				EnableIngress: new(true), // Pre-enable ingress to avoid update conflicts
 				Template: corev1.PodTemplateSpec{
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "ray-head"}},

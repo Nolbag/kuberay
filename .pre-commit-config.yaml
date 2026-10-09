@@ -45,6 +45,7 @@ repos:
         entry: ./scripts/lint.sh
         types: [go]
         language: golang
+        language_version: 1.26.0
         require_serial: true
         always_run: true
         pass_filenames: false

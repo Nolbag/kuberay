@@ -32,7 +32,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	clientFake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -802,7 +801,7 @@ func TestReconcile_ManagedByExternalController(t *testing.T) {
 			Namespace: "default",
 		},
 		Spec: rayv1.RayClusterSpec{
-			ManagedBy: ptr.To("external-controller"),
+			ManagedBy: new("external-controller"),
 		},
 	}
 
@@ -975,12 +974,12 @@ func TestEnforceEnableIngressFalseOnOpenShift(t *testing.T) {
 		},
 		{
 			name:         "enableIngress is true - should override to false",
-			initialValue: ptr.To(true),
+			initialValue: new(true),
 			expectUpdate: true,
 		},
 		{
 			name:         "enableIngress is already false - no update needed",
-			initialValue: ptr.To(false),
+			initialValue: new(false),
 			expectUpdate: false,
 		},
 	}
@@ -1053,7 +1052,7 @@ func TestEnforceEnableIngressFalseOnOpenShift_Idempotency(t *testing.T) {
 		},
 		Spec: rayv1.RayClusterSpec{
 			HeadGroupSpec: rayv1.HeadGroupSpec{
-				EnableIngress: ptr.To(true),
+				EnableIngress: new(true),
 			},
 		},
 	}
@@ -1120,7 +1119,7 @@ func TestEnsureAutoscalerRoleBindingForAuthSA(t *testing.T) {
 					UID:       "test-uid",
 				},
 				Spec: rayv1.RayClusterSpec{
-					EnableInTreeAutoscaling: ptr.To(false),
+					EnableInTreeAutoscaling: new(false),
 				},
 			},
 			existingRB:     nil,
@@ -1138,7 +1137,7 @@ func TestEnsureAutoscalerRoleBindingForAuthSA(t *testing.T) {
 					UID:       "test-uid",
 				},
 				Spec: rayv1.RayClusterSpec{
-					EnableInTreeAutoscaling: ptr.To(true),
+					EnableInTreeAutoscaling: new(true),
 				},
 			},
 			existingRB:     nil,
@@ -1157,7 +1156,7 @@ func TestEnsureAutoscalerRoleBindingForAuthSA(t *testing.T) {
 					UID:       "test-uid",
 				},
 				Spec: rayv1.RayClusterSpec{
-					EnableInTreeAutoscaling: ptr.To(true),
+					EnableInTreeAutoscaling: new(true),
 				},
 			},
 			existingRB: &rbacv1.RoleBinding{
@@ -1191,7 +1190,7 @@ func TestEnsureAutoscalerRoleBindingForAuthSA(t *testing.T) {
 					UID:       "test-uid",
 				},
 				Spec: rayv1.RayClusterSpec{
-					EnableInTreeAutoscaling: ptr.To(true),
+					EnableInTreeAutoscaling: new(true),
 				},
 			},
 			existingRB: &rbacv1.RoleBinding{
@@ -1225,7 +1224,7 @@ func TestEnsureAutoscalerRoleBindingForAuthSA(t *testing.T) {
 					UID:       "test-uid",
 				},
 				Spec: rayv1.RayClusterSpec{
-					EnableInTreeAutoscaling: ptr.To(true),
+					EnableInTreeAutoscaling: new(true),
 				},
 			},
 			existingRB: func() *rbacv1.RoleBinding {

@@ -198,7 +198,7 @@ var _ = Context("RayJob with different submission modes", func() {
 					job := &batchv1.Job{}
 					err := k8sClient.Get(ctx, namespacedName, job)
 					Expect(err).NotTo(HaveOccurred(), "failed to get Kubernetes Job")
-					Expect(*(job.Spec.BackoffLimit)).To(Equal(backoffLimit))
+					Expect(*job.Spec.BackoffLimit).To(Equal(backoffLimit))
 				}
 			})
 		})
@@ -574,7 +574,7 @@ var _ = Context("RayJob with different submission modes", func() {
 			namespace := "default"
 			activeDeadlineSeconds := int32(3)
 			rayJob := rayJobTemplate("rayjob-deadline", namespace)
-			rayJob.Spec.ActiveDeadlineSeconds = ptr.To(activeDeadlineSeconds)
+			rayJob.Spec.ActiveDeadlineSeconds = new(activeDeadlineSeconds)
 
 			It("Verify RayJob spec", func() {
 				// In this test, RayJob passes through the following states: New -> Initializing -> Complete (because of ActiveDeadlineSeconds).

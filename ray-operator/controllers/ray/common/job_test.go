@@ -262,7 +262,7 @@ pip: ["python-multipart==0.0.6"]
 	for i := 0; i < len(expected); i++ {
 		// For non-JSON elements, compare them directly.
 		assert.Equal(t, expected[i], command[i])
-		if expected[i] == "--runtime-env-json" {
+		if expected[i] == "--runtime-env-json" && i+1 < len(expected) {
 			// Decode the JSON string from the next element.
 			var expectedMap, actualMap map[string]any
 			unquoteExpected, err1 := strconv.Unquote(expected[i+1])
@@ -281,6 +281,8 @@ pip: ["python-multipart==0.0.6"]
 
 			// Skip the next element because we've just checked it.
 			i++
+		} else if expected[i] == "--runtime-env-json" {
+			t.Fatal("expected --runtime-env-json to have a value")
 		}
 	}
 }

@@ -4,13 +4,14 @@ import (
 	"context"
 	"reflect"
 
-	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
-	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
-	"github.com/ray-project/kuberay/ray-operator/pkg/features"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
+	"github.com/ray-project/kuberay/ray-operator/pkg/features"
 )
 
 // LegacySecurityController migrates the downstream OpenShift security annotation

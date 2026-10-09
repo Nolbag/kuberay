@@ -18,7 +18,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -496,9 +495,9 @@ func (r *AuthenticationController) ensureHttpRoute(ctx context.Context, cluster 
 							RequestRedirect: &gatewayv1.HTTPRequestRedirectFilter{
 								Path: &gatewayv1.HTTPPathModifier{
 									Type:            gatewayv1.FullPathHTTPPathModifier,
-									ReplaceFullPath: ptr.To(prefixValue + "/#/"),
+									ReplaceFullPath: new(prefixValue + "/#/"),
 								},
-								StatusCode: ptr.To(302), // Temporary redirect
+								StatusCode: new(302), // Temporary redirect
 							},
 						},
 					},
@@ -1015,7 +1014,7 @@ func (r *AuthenticationController) enforceEnableIngressFalseOnOpenShift(ctx cont
 		"cluster", rayCluster.Name, "previousValue", rayCluster.Spec.HeadGroupSpec.EnableIngress)
 
 	// Update the cluster spec
-	rayCluster.Spec.HeadGroupSpec.EnableIngress = ptr.To(false)
+	rayCluster.Spec.HeadGroupSpec.EnableIngress = new(false)
 	if err := r.Update(ctx, rayCluster); err != nil {
 		logger.Error(err, "Failed to enforce enableIngress to false", "cluster", rayCluster.Name)
 		return err

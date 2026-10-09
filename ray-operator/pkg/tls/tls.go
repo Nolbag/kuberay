@@ -191,7 +191,7 @@ func SetupWatcher(mgr manager.Manager, result Result, cancel context.CancelFunc)
 	}
 
 	c, err := controller.New("tls-profile-watcher", mgr, controller.Options{
-		NeedLeaderElection: boolPtr(false),
+		NeedLeaderElection: new(false),
 		Reconciler: &profileWatcher{
 			client:         mgr.GetClient(),
 			cancel:         cancel,
@@ -283,5 +283,3 @@ func profileEqual(a, b *configv1.TLSSecurityProfile) bool {
 	}
 	return true
 }
-
-func boolPtr(b bool) *bool { return &b }

@@ -1462,7 +1462,7 @@ func makeIncrementalUpgradeRayService(
 				RayClusterStatus: rayv1.RayClusterStatus{
 					Head: rayv1.HeadInfo{ServiceName: "pending-service"},
 				},
-				TrafficRoutedPercent:    ptr.To(int32(100) - *routedPercent),
+				TrafficRoutedPercent:    new(int32(100) - *routedPercent),
 				LastTrafficMigratedTime: lastTrafficMigratedTime,
 			},
 		},
@@ -1502,14 +1502,14 @@ func TestCreateGateway(t *testing.T) {
 		{
 			name:                "valid gateway creation",
 			expectedGatewayName: "incremental-ray-service-gateway",
-			rayService:          makeIncrementalUpgradeRayService(true, "gateway-class", ptr.To(int32(50)), ptr.To(int32(10)), ptr.To(int32(80)), &metav1.Time{Time: time.Now()}),
+			rayService:          makeIncrementalUpgradeRayService(true, "gateway-class", new(int32(50)), new(int32(10)), new(int32(80)), &metav1.Time{Time: time.Now()}),
 			expectErr:           false,
 			expectedClass:       "gateway-class",
 			expectedListeners:   1,
 		},
 		{
 			name:       "missing ClusterUpgradeOptions",
-			rayService: makeIncrementalUpgradeRayService(false, "gateway-class", ptr.To(int32(0)), ptr.To(int32(0)), ptr.To(int32(0)), &metav1.Time{Time: time.Now()}),
+			rayService: makeIncrementalUpgradeRayService(false, "gateway-class", new(int32(0)), new(int32(0)), new(int32(0)), &metav1.Time{Time: time.Now()}),
 			expectErr:  true,
 		},
 	}
@@ -1559,13 +1559,13 @@ func TestCreateHTTPRoute(t *testing.T) {
 		Status: rayv1.RayServiceStatuses{
 			ActiveServiceStatus: rayv1.RayServiceStatus{
 				RayClusterName:       activeCluster.Name,
-				TrafficRoutedPercent: ptr.To(int32(100)),
-				TargetCapacity:       ptr.To(int32(100)),
+				TrafficRoutedPercent: new(int32(100)),
+				TargetCapacity:       new(int32(100)),
 			},
 			PendingServiceStatus: rayv1.RayServiceStatus{
 				RayClusterName:       pendingCluster.Name,
-				TrafficRoutedPercent: ptr.To(int32(0)),
-				TargetCapacity:       ptr.To(int32(30)),
+				TrafficRoutedPercent: new(int32(0)),
+				TargetCapacity:       new(int32(30)),
 			},
 		},
 	}
@@ -1603,7 +1603,7 @@ func TestCreateHTTPRoute(t *testing.T) {
 			name: "NewClusterWithIncrementalUpgrade, time since LastTrafficMigratedTime >= IntervalSeconds.",
 			modifier: func(rs *rayv1.RayService) {
 				rs.Status.PendingServiceStatus.LastTrafficMigratedTime = &metav1.Time{Time: time.Now().Add(-time.Duration(interval+1) * time.Second)}
-				rs.Status.PendingServiceStatus.TargetCapacity = ptr.To(int32(60))
+				rs.Status.PendingServiceStatus.TargetCapacity = new(int32(60))
 			},
 			runtimeObjects:        []runtime.Object{activeCluster, pendingCluster, gateway, activeServeService, pendingServeService},
 			isPendingClusterReady: true,
@@ -1614,7 +1614,7 @@ func TestCreateHTTPRoute(t *testing.T) {
 			name: "NewClusterWithIncrementalUpgrade, TrafficRoutedPercent capped to pending TargetCapacity.",
 			modifier: func(rs *rayv1.RayService) {
 				rs.Status.PendingServiceStatus.LastTrafficMigratedTime = &metav1.Time{Time: time.Now().Add(-time.Duration(interval+1) * time.Second)}
-				rs.Status.PendingServiceStatus.TargetCapacity = ptr.To(int32(5))
+				rs.Status.PendingServiceStatus.TargetCapacity = new(int32(5))
 			},
 			runtimeObjects:        []runtime.Object{activeCluster, pendingCluster, gateway, activeServeService, pendingServeService},
 			isPendingClusterReady: true,
@@ -1724,13 +1724,13 @@ func TestReconcileHTTPRoute(t *testing.T) {
 		Status: rayv1.RayServiceStatuses{
 			ActiveServiceStatus: rayv1.RayServiceStatus{
 				RayClusterName:       activeCluster.Name,
-				TrafficRoutedPercent: ptr.To(int32(100)),
-				TargetCapacity:       ptr.To(int32(100)),
+				TrafficRoutedPercent: new(int32(100)),
+				TargetCapacity:       new(int32(100)),
 			},
 			PendingServiceStatus: rayv1.RayServiceStatus{
 				RayClusterName:       pendingCluster.Name,
-				TrafficRoutedPercent: ptr.To(int32(0)),
-				TargetCapacity:       ptr.To(int32(100)),
+				TrafficRoutedPercent: new(int32(0)),
+				TargetCapacity:       new(int32(100)),
 			},
 		},
 	}
@@ -1835,7 +1835,7 @@ func TestReconcileHTTPRoute(t *testing.T) {
 			// Assert ParentRef namespace is correctly set.
 			parent := reconciledRoute.Spec.ParentRefs[0]
 			assert.Equal(t, gwv1.ObjectName(gatewayName), parent.Name)
-			assert.Equal(t, ptr.To(gwv1.Namespace(namespace)), parent.Namespace)
+			assert.Equal(t, new(gwv1.Namespace(namespace)), parent.Namespace)
 		})
 	}
 }
@@ -1852,10 +1852,10 @@ func TestReconcileGateway(t *testing.T) {
 	rayService := makeIncrementalUpgradeRayService(
 		true,
 		"gateway-class",
-		ptr.To(int32(20)),
-		ptr.To(int32(30)),
-		ptr.To(int32(80)),
-		ptr.To(metav1.Now()),
+		new(int32(20)),
+		new(int32(30)),
+		new(int32(80)),
+		new(metav1.Now()),
 	)
 	gateway := makeGateway(fmt.Sprintf("%s-gateway", rayService.Name), rayService.Namespace, true)
 
@@ -1954,7 +1954,7 @@ func TestReconcileServeTargetCapacity(t *testing.T) {
 					UpgradeStrategy: &rayv1.RayServiceUpgradeStrategy{
 						Type: ptr.To(rayv1.RayServiceNewClusterWithIncrementalUpgrade),
 						ClusterUpgradeOptions: &rayv1.ClusterUpgradeOptions{
-							MaxSurgePercent: ptr.To(tt.maxSurgePercent),
+							MaxSurgePercent: new(tt.maxSurgePercent),
 						},
 					},
 					ServeConfigV2: `{"target_capacity": 0}`,
@@ -1962,13 +1962,13 @@ func TestReconcileServeTargetCapacity(t *testing.T) {
 				Status: rayv1.RayServiceStatuses{
 					ActiveServiceStatus: rayv1.RayServiceStatus{
 						RayClusterName:       "active",
-						TargetCapacity:       ptr.To(tt.activeCapacity),
-						TrafficRoutedPercent: ptr.To(tt.activeRoutedPercent),
+						TargetCapacity:       new(tt.activeCapacity),
+						TrafficRoutedPercent: new(tt.activeRoutedPercent),
 					},
 					PendingServiceStatus: rayv1.RayServiceStatus{
 						RayClusterName:       "pending",
-						TargetCapacity:       ptr.To(tt.pendingCapacity),
-						TrafficRoutedPercent: ptr.To(tt.pendingRoutedPercent),
+						TargetCapacity:       new(tt.pendingCapacity),
+						TrafficRoutedPercent: new(tt.pendingRoutedPercent),
 					},
 				},
 			}
@@ -2047,7 +2047,7 @@ func makeHTTPRoute(name, namespace string, isReady bool) *gwv1.HTTPRoute {
 					{
 						ParentRef: gwv1.ParentReference{
 							Name:      gwv1.ObjectName("test-rayservice-gateway"),
-							Namespace: ptr.To(gwv1.Namespace(namespace)),
+							Namespace: new(gwv1.Namespace(namespace)),
 						},
 						Conditions: []metav1.Condition{
 							{
@@ -2109,13 +2109,13 @@ func TestCheckIfNeedTargetCapacityUpdate(t *testing.T) {
 			name: "NewClusterWithIncrementalUpgrade is complete",
 			activeStatus: rayv1.RayServiceStatus{
 				RayClusterName:       "active",
-				TargetCapacity:       ptr.To(int32(0)),
-				TrafficRoutedPercent: ptr.To(int32(0)),
+				TargetCapacity:       new(int32(0)),
+				TrafficRoutedPercent: new(int32(0)),
 			},
 			pendingStatus: rayv1.RayServiceStatus{
 				RayClusterName:       "pending",
-				TargetCapacity:       ptr.To(int32(100)),
-				TrafficRoutedPercent: ptr.To(int32(100)),
+				TargetCapacity:       new(int32(100)),
+				TrafficRoutedPercent: new(int32(100)),
 			},
 			runtimeObjects: []runtime.Object{
 				makeGateway(gatewayName, namespace, true), makeHTTPRoute(httpRouteName, namespace, true),
@@ -2127,13 +2127,13 @@ func TestCheckIfNeedTargetCapacityUpdate(t *testing.T) {
 			name: "Pending RayCluster is still incrementally scaling",
 			activeStatus: rayv1.RayServiceStatus{
 				RayClusterName:       "active",
-				TargetCapacity:       ptr.To(int32(70)),
-				TrafficRoutedPercent: ptr.To(int32(70)),
+				TargetCapacity:       new(int32(70)),
+				TrafficRoutedPercent: new(int32(70)),
 			},
 			pendingStatus: rayv1.RayServiceStatus{
 				RayClusterName:       "pending",
-				TargetCapacity:       ptr.To(int32(30)),
-				TrafficRoutedPercent: ptr.To(int32(30)),
+				TargetCapacity:       new(int32(30)),
+				TrafficRoutedPercent: new(int32(30)),
 			},
 			runtimeObjects: []runtime.Object{
 				makeGateway(gatewayName, namespace, true), makeHTTPRoute(httpRouteName, namespace, true),
@@ -2198,10 +2198,10 @@ func TestReconcilePerClusterServeService(t *testing.T) {
 	rayService := makeIncrementalUpgradeRayService(
 		true,
 		"istio",
-		ptr.To(int32(20)),
-		ptr.To(int32(30)),
-		ptr.To(int32(80)),
-		ptr.To(metav1.Now()),
+		new(int32(20)),
+		new(int32(30)),
+		new(int32(80)),
+		new(metav1.Now()),
 	)
 
 	// The expected pending RayCluster serve service.
@@ -2597,15 +2597,15 @@ func Test_RayServiceReconcileManagedBy(t *testing.T) {
 			shouldReconcile: true,
 		},
 		{
-			managedBy: ptr.To(""),
+			managedBy: new(""),
 			name:      "ManagedBy field empty",
 		},
 		{
-			managedBy: ptr.To(MultiKueueController),
+			managedBy: new(MultiKueueController),
 			name:      "ManagedBy field to external allowed controller",
 		},
 		{
-			managedBy: ptr.To("controller.com/invalid"),
+			managedBy: new("controller.com/invalid"),
 			name:      "ManagedBy field to external not allowed controller",
 		},
 	}
@@ -2681,7 +2681,7 @@ func TestReconcileRollbackState(t *testing.T) {
 	baseSpec := rayv1.RayClusterSpec{
 		RayVersion: "2.54.0",
 		WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
-			{GroupName: "worker-group", Replicas: ptr.To(int32(1))},
+			{GroupName: "worker-group", Replicas: new(int32(1))},
 		},
 	}
 
@@ -2815,14 +2815,14 @@ func TestShouldUpdateCluster_SuspendFlip(t *testing.T) {
 		isActiveCluster bool
 		expect          bool
 	}{
-		{"pending unsuspended by Kueue: true -> false", ptr.To(false), ptr.To(true), false, true},
-		{"pending suspended by Kueue: false -> true", ptr.To(true), ptr.To(false), false, true},
-		{"active unsuspended by Kueue: true -> false", ptr.To(false), ptr.To(true), true, true},
-		{"active suspended by Kueue: false -> true", ptr.To(true), ptr.To(false), true, true},
+		{"pending unsuspended by Kueue: true -> false", new(false), new(true), false, true},
+		{"pending suspended by Kueue: false -> true", new(true), new(false), false, true},
+		{"active unsuspended by Kueue: true -> false", new(false), new(true), true, true},
+		{"active suspended by Kueue: false -> true", new(true), new(false), true, true},
 		{"no change, both nil", nil, nil, false, false},
-		{"no change, both false", ptr.To(false), ptr.To(false), false, false},
-		{"no change, both true", ptr.To(true), ptr.To(true), false, false},
-		{"nil vs false treated equal", nil, ptr.To(false), false, false},
+		{"no change, both false", new(false), new(false), false, false},
+		{"no change, both true", new(true), new(true), false, false},
+		{"nil vs false treated equal", nil, new(false), false, false},
 	}
 
 	for _, tt := range tests {
@@ -2867,7 +2867,7 @@ func TestRayServiceFinalizer(t *testing.T) {
 			rayService: &rayv1.RayService{
 				ObjectMeta: metav1.ObjectMeta{Name: "test-rayservice", Namespace: namespace},
 				Spec: rayv1.RayServiceSpec{
-					ManagedBy: ptr.To("kueue.x-k8s.io/multikueue"),
+					ManagedBy: new("kueue.x-k8s.io/multikueue"),
 				},
 			},
 			validate: func(t *testing.T, fakeClient client.Client, namespacedName types.NamespacedName) {

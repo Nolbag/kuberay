@@ -290,7 +290,7 @@ var _ = Context("NetworkPolicy Controller Integration Tests", func() {
 				Kind:       "RayJob",
 				Name:       "test-rayjob",
 				UID:        "12345",
-				Controller: ptr.To(true),
+				Controller: new(true),
 			},
 		}
 

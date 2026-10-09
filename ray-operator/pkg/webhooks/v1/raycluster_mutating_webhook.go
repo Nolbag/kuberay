@@ -24,7 +24,6 @@ var _ admission.Defaulter[*rayv1.RayCluster] = &RayClusterDefaulter{}
 
 // Default implements webhook.CustomDefaulter
 func (d *RayClusterDefaulter) Default(_ context.Context, rayCluster *rayv1.RayCluster) error {
-
 	rayClusterLog.Info("default", "name", rayCluster.Name)
 
 	// Initialize annotations map if nil

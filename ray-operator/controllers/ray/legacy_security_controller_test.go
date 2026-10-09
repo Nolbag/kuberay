@@ -5,16 +5,16 @@ import (
 	"reflect"
 	"testing"
 
-	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
-	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
-	"github.com/ray-project/kuberay/ray-operator/pkg/features"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	"github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
+	"github.com/ray-project/kuberay/ray-operator/pkg/features"
 )
 
 func legacySecurityScheme(t *testing.T) *runtime.Scheme {
@@ -67,9 +67,9 @@ func TestLegacySecurityControllerPreservesExplicitNativeFields(t *testing.T) {
 	explicit := legacySecurityCluster("explicit", map[string]string{
 		utils.EnableSecureTrustedNetworkAnnotationKey: "true",
 	})
-	explicit.Spec.TLSOptions = &rayv1.TLSOptions{Enabled: ptr.To(false)}
+	explicit.Spec.TLSOptions = &rayv1.TLSOptions{Enabled: new(false)}
 	explicit.Spec.NetworkPolicy = &rayv1.NetworkPolicyConfig{Mode: &mode}
-	explicit.Spec.HeadGroupSpec.EnableIngress = ptr.To(true)
+	explicit.Spec.HeadGroupSpec.EnableIngress = new(true)
 	want := explicit.Spec.DeepCopy()
 
 	c := fake.NewClientBuilder().WithScheme(legacySecurityScheme(t)).WithObjects(explicit).Build()

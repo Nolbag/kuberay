@@ -103,7 +103,7 @@ func main() {
 	}
 
 	// Create reverse proxy
-	proxy := httputil.NewSingleHostReverseProxy(remote)
+	proxy := httputil.NewSingleHostReverseProxy(remote) // #nosec G704 -- upstream host is fixed to localhost
 	klog.Info("Connected to remote HTTP ", remoteURL)
 	// Create token authorization
 	token := httpproxy.NewTokenAuth(securityToken, proxy, securePrefix, remote)
