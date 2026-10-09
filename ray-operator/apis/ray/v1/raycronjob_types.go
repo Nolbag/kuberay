@@ -15,7 +15,7 @@ type RayCronJobSpec struct {
 	// Suspend tells the controller to suspend the scheduling, it does not apply to
 	// scheduled RayJob.
 	// +optional
-	Suspend bool `json:"suspend,omitempty"`
+	Suspend *bool `json:"suspend,omitempty"`
 }
 
 // RayCronJobStatus defines the observed state of RayCronJob
@@ -26,7 +26,7 @@ type RayCronJobStatus struct {
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 //+kubebuilder:printcolumn:name="schedule",type=string,JSONPath=".spec.schedule",priority=0
-//+kubebuilder:printcolumn:name="last schedule",type=string,JSONPath=".status.lastScheduleTime",priority=0
+//+kubebuilder:printcolumn:name="last schedule",type=date,JSONPath=".status.lastScheduleTime",priority=0
 //+kubebuilder:printcolumn:name="age",type="date",JSONPath=".metadata.creationTimestamp",priority=0
 //+kubebuilder:printcolumn:name="suspend",type=boolean,JSONPath=".spec.suspend",priority=0
 
@@ -49,8 +49,4 @@ type RayCronJobList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []RayCronJob `json:"items"`
-}
-
-func init() {
-	SchemeBuilder.Register(&RayCronJob{}, &RayCronJobList{})
 }

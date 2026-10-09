@@ -54,6 +54,15 @@ const (
 	//
 	// Enables asynchronous job info querying.
 	AsyncJobInfoQuery featuregate.Feature = "AsyncJobInfoQuery"
+
+	// Enables NetworkPolicy-based network isolation for RayClusters.
+	RayClusterNetworkPolicy featuregate.Feature = "RayClusterNetworkPolicy"
+
+	// Enables mTLS certificate management for RayClusters.
+	RayClusterMTLS featuregate.Feature = "RayClusterMTLS"
+
+	// Enables RayCluster history server collector sidecar injection.
+	RayClusterHistoryServer featuregate.Feature = "RayClusterHistoryServer"
 )
 
 func init() {
@@ -67,6 +76,9 @@ var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	RayServiceIncrementalUpgrade: {Default: false, PreRelease: featuregate.Alpha},
 	RayCronJob:                   {Default: false, PreRelease: featuregate.Alpha},
 	AsyncJobInfoQuery:            {Default: false, PreRelease: featuregate.Alpha},
+	RayClusterNetworkPolicy:      {Default: false, PreRelease: featuregate.Alpha},
+	RayClusterMTLS:               {Default: false, PreRelease: featuregate.Alpha},
+	RayClusterHistoryServer:      {Default: false, PreRelease: featuregate.Alpha},
 }
 
 // SetFeatureGateDuringTest is a helper method to override feature gates in tests.

@@ -152,6 +152,7 @@ rules:
   resources:
   - configmaps
   - events
+  - persistentvolumeclaims
   - pods/status
   - serviceaccounts
   - services
@@ -163,6 +164,13 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
 - apiGroups:
   - ""
   resources:

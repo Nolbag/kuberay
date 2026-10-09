@@ -123,7 +123,7 @@ var _ = BeforeSuite(func(ctx SpecContext) {
 			},
 		},
 	}
-	err = NewReconciler(ctx, mgr, options).SetupWithManager(mgr, 1)
+	err = NewReconciler(mgr, options).SetupWithManager(mgr, 1)
 	Expect(err).NotTo(HaveOccurred(), "failed to setup RayCluster controller")
 
 	testClientProvider := TestClientProvider{}
@@ -135,8 +135,9 @@ var _ = BeforeSuite(func(ctx SpecContext) {
 	Expect(err).NotTo(HaveOccurred(), "failed to setup RayJob controller")
 
 	// NetworkPolicy controller
-	networkPolicyController := NewNetworkPolicyController(mgr)
-	err = networkPolicyController.SetupWithManager(mgr)
+	networkPolicyController, err := NewNetworkPolicyController(mgr)
+	Expect(err).NotTo(HaveOccurred(), "failed to create NetworkPolicy controller")
+	err = networkPolicyController.SetupWithManager(mgr, 1)
 	Expect(err).NotTo(HaveOccurred(), "failed to setup NetworkPolicy controller")
 
 	go func() {

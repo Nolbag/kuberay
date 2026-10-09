@@ -262,7 +262,7 @@ func TestRayCronJobReconcile_Suspend(t *testing.T) {
 
 	// Create RayCronJob with suspend=true
 	rayCronJob := rayCronJobTemplate("suspended-cronjob", "default", "*/5 * * * *")
-	rayCronJob.Spec.Suspend = true
+	rayCronJob.Spec.Suspend = new(true)
 
 	// Create scheme and add types
 	scheme := runtime.NewScheme()

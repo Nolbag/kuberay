@@ -21,7 +21,9 @@ import (
 	"k8s.io/apimachinery/pkg/selection"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
+	"k8s.io/client-go/discovery"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -256,6 +258,7 @@ func main() {
 	restConfig.UserAgent = userAgent
 	restConfig.QPS = float32(*config.QPS)
 	restConfig.Burst = *config.Burst
+	certManagerAvailable := certManagerAPIAvailable(restConfig)
 
 	// Fetch the cluster TLS security profile for metrics server (OpenShift only).
 	// Resolve() has its own 10s timeout internally.
@@ -309,15 +312,20 @@ func main() {
 	exitOnError(err, "unable to create batch scheduler manager")
 	batchSchedulerManager.AddToScheme(mgr.GetScheme())
 
+	isOpenShift, err := utils.IsOpenShiftCluster(restConfig)
+	exitOnError(err, "unable to detect cluster type", "controller", "cluster-type")
+
 	rayClusterOptions := ray.RayClusterReconcilerOptions{
 		HeadSidecarContainers:    config.HeadSidecarContainers,
 		WorkerSidecarContainers:  config.WorkerSidecarContainers,
-		IsOpenShift:              utils.GetClusterType(),
+		IsOpenShift:              isOpenShift,
+		UseIngressOnOpenShift:    utils.ShouldUseIngressOnOpenShift(),
 		RayClusterMetricsManager: rayClusterMetricsManager,
 		BatchSchedulerManager:    batchSchedulerManager,
 		DefaultContainerEnvs:     config.DefaultContainerEnvs,
+		CertManagerAvailable:     certManagerAvailable,
 	}
-	exitOnError(ray.NewReconciler(ctx, mgr, rayClusterOptions).SetupWithManager(mgr, config.ReconcileConcurrency),
+	exitOnError(ray.NewReconciler(mgr, rayClusterOptions).SetupWithManager(mgr, config.ReconcileConcurrency),
 		"unable to create controller", "controller", "RayCluster")
 
 	exitOnError(ray.NewRayServiceReconciler(ctx, mgr, config).SetupWithManager(mgr, config.ReconcileConcurrency),
@@ -330,13 +338,28 @@ func main() {
 	exitOnError(ray.NewRayJobReconciler(ctx, mgr, rayJobOptions, config).SetupWithManager(mgr, config.ReconcileConcurrency),
 		"unable to create controller", "controller", "RayJob")
 
-	mtlsController := ray.NewRayClusterMTLSController(mgr.GetClient(), mgr.GetScheme(), &config)
-	exitOnError(mtlsController.SetupWithManager(mgr),
-		"unable to create controller", "controller", "RayClusterMTLS")
+	if features.Enabled(features.RayClusterMTLS) {
+		if certManagerAvailable {
+			exitOnError(ray.NewRayClusterMTLSController(mgr).SetupWithManager(mgr),
+				"unable to create controller", "controller", "RayClusterMTLS")
+		} else {
+			setupLog.Info("cert-manager API not found; mTLS controller disabled")
+		}
+	}
 
-	exitOnError(ray.NewNetworkPolicyController(mgr).SetupWithManager(mgr),
-		"unable to create controller", "controller", "NetworkPolicy")
-	setupLog.Info("NetworkPolicy controller registered (annotation-based activation)")
+	if features.Enabled(features.RayClusterNetworkPolicy) {
+		networkPolicyController, err := ray.NewNetworkPolicyController(mgr)
+		exitOnError(err, "unable to create controller", "controller", "NetworkPolicy")
+		exitOnError(networkPolicyController.SetupWithManager(mgr, config.ReconcileConcurrency),
+			"unable to create controller", "controller", "NetworkPolicy")
+		setupLog.Info("NetworkPolicy controller registered")
+	}
+
+	if isOpenShift && features.Enabled(features.RayClusterMTLS) && features.Enabled(features.RayClusterNetworkPolicy) {
+		legacySecurityController := ray.NewLegacySecurityController(mgr, isOpenShift)
+		exitOnError(legacySecurityController.SetupWithManager(mgr),
+			"unable to create controller", "controller", "RayClusterLegacySecurity")
+	}
 
 	authController := ray.NewAuthenticationController(mgr, rayClusterOptions)
 	exitOnError(authController.SetupWithManager(mgr),
@@ -379,6 +402,24 @@ func cacheSelectors() (map[client.Object]cache.ByObject, error) {
 	return map[client.Object]cache.ByObject{
 		&batchv1.Job{}: {Label: selector},
 	}, nil
+}
+
+// certManagerAPIAvailable reports whether the cert-manager Certificate and Issuer APIs are served.
+func certManagerAPIAvailable(restConfig *rest.Config) bool {
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(restConfig)
+	if err != nil || discoveryClient == nil {
+		return false
+	}
+	_, resources, err := discoveryClient.ServerGroupsAndResources()
+	if err != nil {
+		return false
+	}
+	for _, resourceList := range resources {
+		if resourceList.GroupVersion == "cert-manager.io/v1" {
+			return true
+		}
+	}
+	return false
 }
 
 func exitOnError(err error, msg string, keysAndValues ...any) {
