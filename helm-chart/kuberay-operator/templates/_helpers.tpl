@@ -165,13 +165,6 @@ rules:
   - update
   - watch
 - apiGroups:
-  - events.k8s.io
-  resources:
-  - events
-  verbs:
-  - create
-  - patch
-- apiGroups:
   - ""
   resources:
   - pods
@@ -208,6 +201,7 @@ rules:
   - delete
   - get
   - list
+  - update
   - watch
 - apiGroups:
   - ""
@@ -256,13 +250,10 @@ rules:
   - cert-manager.io
   resources:
   - certificates
-  - issuers
   verbs:
   - create
-  - delete
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:
@@ -271,8 +262,15 @@ rules:
   - certificates/status
   verbs:
   - get
-  - patch
-  - update
+- apiGroups:
+  - cert-manager.io
+  resources:
+  - issuers
+  verbs:
+  - create
+  - get
+  - list
+  - watch
 - apiGroups:
   - coordination.k8s.io
   resources:
@@ -291,7 +289,15 @@ rules:
   - list
   - watch
 - apiGroups:
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
   - extensions
+  - networking.k8s.io
   resources:
   - ingresses
   verbs:
@@ -336,14 +342,12 @@ rules:
 - apiGroups:
   - networking.k8s.io
   resources:
-  - ingresses
   - networkpolicies
   verbs:
   - create
   - delete
   - get
   - list
-  - patch
   - update
   - watch
 - apiGroups:

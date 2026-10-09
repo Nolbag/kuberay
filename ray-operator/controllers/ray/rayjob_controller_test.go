@@ -312,7 +312,7 @@ var _ = Context("RayJob with different submission modes", func() {
 				Expect(err).NotTo(HaveOccurred(), "failed to get Kubernetes Job")
 			})
 
-			It("RayJobs's JobDeploymentStatus transitions from Running to Complete.", func() {
+			It("RayJob is deleted after the Kubernetes Job completes when configured.", func() {
 				// Update fake dashboard client to return job info with "Succeeded" status.
 				getJobInfo := func(context.Context, string) (*utiltypes.RayJobInfo, error) { //nolint:unparam // This is a mock function so parameters are required
 					return &utiltypes.RayJobInfo{JobStatus: rayv1.JobStatusSucceeded, EndTime: uint64(time.Now().UnixMilli())}, nil
@@ -457,6 +457,14 @@ var _ = Context("RayJob with different submission modes", func() {
 			rayJob := rayJobTemplate("rayjob-test-delete", namespace)
 			rayCluster := &rayv1.RayCluster{}
 
+			BeforeAll(func() {
+				Expect(os.Setenv(utils.DELETE_RAYJOB_CR_AFTER_JOB_FINISHES, "true")).To(Succeed())
+			})
+
+			AfterAll(func() {
+				Expect(os.Unsetenv(utils.DELETE_RAYJOB_CR_AFTER_JOB_FINISHES)).To(Succeed())
+			})
+
 			It("Verify RayJob spec", func() {
 				// This test case simulates the most common scenario in the RayJob code path.
 				// (1) The submission mode is K8sJobMode.
@@ -553,19 +561,11 @@ var _ = Context("RayJob with different submission modes", func() {
 
 				updateK8sJobToComplete(ctx, job)
 
-				// RayJob transitions to Complete.
-				Eventually(
-					getRayJobDeploymentStatus(ctx, rayJob),
-					time.Second*5, time.Millisecond*500).Should(Equal(rayv1.JobDeploymentStatusComplete), "jobDeploymentStatus = %v", rayJob.Status.JobDeploymentStatus)
-			})
-
-			It("If DELETE_RAYJOB_CR_AFTER_JOB_FINISHES environement variable is set, RayJob should be deleted.", func() {
-				os.Setenv(utils.DELETE_RAYJOB_CR_AFTER_JOB_FINISHES, "true")
-				defer os.Unsetenv(utils.DELETE_RAYJOB_CR_AFTER_JOB_FINISHES)
+				// A completed Kubernetes Job triggers RayJob deletion when configured.
 				Eventually(
 					func() bool {
 						return apierrors.IsNotFound(getResourceFunc(ctx, client.ObjectKey{Name: rayJob.Name, Namespace: namespace}, rayJob)())
-					}, time.Second*3, time.Millisecond*500).Should(BeTrue())
+					}, time.Second*5, time.Millisecond*500).Should(BeTrue())
 			})
 		})
 

@@ -91,7 +91,7 @@ GOBINDATA ?= $(REPO_ROOT_BIN)/go-bindata
 ## Tool Versions
 GOFUMPT_VERSION ?= v0.3.1
 GOIMPORTS_VERSION ?= v0.14.0
-GOLANGCI_LINT_VERSION ?= v2.7.2
+GOLANGCI_LINT_VERSION ?= v2.14.0
 KIND_VERSION ?= v0.19.0
 GOBINDATA_VERSION ?= v4.0.2
 
@@ -103,7 +103,7 @@ $(GOFUMPT): $(REPO_ROOT_BIN)
 .PHONY: golangci-lint
 golangci-lint: $(GOLANGCI_LINT) ## Download golangci_lint locally if necessary.
 $(GOLANGCI_LINT): $(REPO_ROOT_BIN)
-	test -s $(GOLANGCI_LINT) || (curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | bash -s -- -b $(REPO_ROOT_BIN)/ $(GOLANGCI_LINT_VERSION))
+	test -s $(GOLANGCI_LINT) || GOBIN=$(REPO_ROOT_BIN) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
 .PHONY: go-bindata
 go-bindata: $(GOBINDATA) ## Download the go-bindata executable if necessary.

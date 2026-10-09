@@ -1328,7 +1328,7 @@ var _ = Context("Inside the default namespace", func() {
 
 			By("Check RayCluster conditions empty initially")
 			// Initially, neither head Pod nor worker Pod are ready. The RayClusterProvisioned condition should not be present.
-			Expect(testRayCluster.Status.Conditions).To(BeEmpty())
+			Expect(rayCluster.Status.Conditions).To(BeEmpty())
 
 			By("Update the head pod to Running and Ready")
 			headPod.Status.Phase = corev1.PodRunning
