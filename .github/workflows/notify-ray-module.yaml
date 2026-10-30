@@ -1,0 +1,53 @@
+# Notify the Ray module repository when downstream KubeRay configuration changes.
+name: Notify Ray module of downstream KubeRay changes
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ray-operator/config/**
+      - .github/workflows/notify-ray-module.yaml
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  notify:
+    if: github.repository == 'red-hat-data-services/kuberay' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Create dispatch token for the ODH Ray module repository
+        id: app
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ secrets.MANIFESTS_SYNC_APP_ID }}
+          private-key: ${{ secrets.MANIFESTS_SYNC_APP_PRIVATE_KEY }}
+          owner: opendatahub-io
+          repositories: ray-module-operator
+          permission-contents: write
+
+      - name: Trigger downstream update
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          BASE_BRANCH: ${{ github.ref_name }}
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          dispatch_payload="$(jq -cn \
+            --arg base_branch "$BASE_BRANCH" \
+            --arg source_sha "$SOURCE_SHA" \
+            --arg repository "$SOURCE_REPOSITORY" \
+            '{event_type: "kuberay-downstream-update", client_payload: {base_branch: $base_branch, source_sha: $source_sha, repository: $repository}}')"
+
+          for delay in 0 5 15; do
+            sleep "$delay"
+            if printf '%s' "$dispatch_payload" | \
+              gh api --method POST repos/opendatahub-io/ray-module-operator/dispatches --input -; then
+              exit 0
+            fi
+          done
+          echo '::error::Could not notify the Ray module repository after three attempts.'
+          exit 1
